@@ -138,25 +138,17 @@ class POSTALLMETHODTEST(unittest.TestCase):
     def test_boxlist_filtered_diff(self):
         import h5py
 
-        f_np = h5py.File('boxlist_filtered.h5', 'r')
+        f_np = h5py.File('tf_proposal.h5', 'r')
 
-        boxlist_filtered_np = f_np["boxlist_filtered"].value
-        print("boxlist_filtered_np:", boxlist_filtered_np.shape)
+        boxlist_filtered_np = f_np["tf_proposal"].value
+        print("tf_proposal :", boxlist_filtered_np.shape)
 
-        f_tf = h5py.File('boxlist_filtered_tf.h5', 'r')
+        f_tf = h5py.File('caffe_proposal.h5', 'r')
 
-        boxlist_filtered_tf = f_tf["boxlist_filtered_tf"].value
-        print("boxlist_filtered_tf:", boxlist_filtered_tf.shape)
+        boxlist_filtered_tf = f_tf["caffe_proposal"].value
+        print("caffe_proposal:", boxlist_filtered_tf.shape)
 
-        print(" boxlist_filtered diff:", boxlist_filtered_tf - boxlist_filtered_np)
-
-        # [[-0.00994521 -0.00481666  0.01154981 -0.00015201]
-        #  [ 0.          0.          0.02279336 -0.01244337]
-        #  [ 0.          0.00188472  0.00797784  0.01259335]
-        #  ...
-        #  [ 0.01399781  0.         -0.00952968  0.        ]
-        #  [ 0.         -0.01331163  0.         -0.02723793]
-        #  [ 0.00188727 -0.00149506  0.00445205  0.00081215]]
+        print(" proposal diff:", boxlist_filtered_tf - boxlist_filtered_np)
 
         max_diff = np.max(np.abs(boxlist_filtered_tf - boxlist_filtered_np))
         print("max_diff:", max_diff)

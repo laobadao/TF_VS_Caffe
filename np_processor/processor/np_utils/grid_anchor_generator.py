@@ -153,7 +153,6 @@ def tile_anchors(grid_height,
     # anchor_offset: [0, 0]
 
     y_centers = np.array([float(i) for i in range(grid_height)])
-
     y_centers = y_centers * anchor_stride[0] + anchor_offset[0]
 
 
@@ -170,6 +169,10 @@ def tile_anchors(grid_height,
     #  672. 688. 704. 720. 736. 752. 768. 784. 800. 816. 832. 848. 864. 880.
     #  896. 912. 928. 944. 960. 976. 992.]  63 个
 
+    # 语法：X,Y = numpy.meshgrid(x, y)
+    # 输入的x，y，就是网格点的横纵坐标列向量（非矩阵）
+    # 输出的X，Y，就是坐标矩阵 
+    # 将两个一维数组变为二维矩阵
     x_centers, y_centers = np.meshgrid(x_centers, y_centers)
     # x_centers: (38, 63)
     # y_centers: (38, 63)
@@ -178,6 +181,7 @@ def tile_anchors(grid_height,
 
     bbox_centers = np.stack((y_centers_grid, x_centers_grid), axis=3)
     bbox_sizes = np.stack((heights_grid, widths_grid), axis=3)
+
     bbox_centers = np.reshape(bbox_centers, (-1, 2))
     bbox_sizes = np.reshape(bbox_sizes, (-1, 2))
 
@@ -193,4 +197,5 @@ def tile_anchors(grid_height,
 
 
 def _center_size_bbox_to_corners_bbox(centers, sizes):
+    # 返回的是 y,x,y,x y_min, x_min, y_max, x_max
     return np.concatenate([centers - .5 * sizes, centers + .5 * sizes], 1)

@@ -149,6 +149,7 @@ def second_stage_box_predictor(preprocessed_inputs, box_encoding_reshape, class_
         box_predictions[CLASS_PREDICTIONS_WITH_BACKGROUND],
         axis=1)
 
+
     first_stage_max_proposals = config.cfg.POSTPROCESSOR.FIRST_STAGE_MAX_PROPOSALS
 
     proposal_boxes_normalized, _, num_proposals = _postprocess_rpn(
@@ -312,9 +313,7 @@ def crop_and_resize_to_input(rpn_box_predictor_features, preprocessed_inputs, bo
 
     rpn_box_encodings = np.squeeze(predictions_box_encodings, axis=2)
 
-    print("rpn_box_encodings:", rpn_box_encodings.shape)
-    print("rpn_box_encodings 0 :", rpn_box_encodings[0, 0, :])
-
+    # -2.7135613
     rpn_objectness_predictions_with_background = np.concatenate(
         box_predictions[CLASS_PREDICTIONS_WITH_BACKGROUND], axis=1)
 
@@ -412,25 +411,27 @@ def _first_stage_box_predictor_predict(image_features, box_encodings, class_pred
     class_predictions_list = []
     num_classes = 1
     num_class_slots = num_classes + 1
-
+    # [12]
+    print("num_predictions_per_locations:", num_predictions_per_locations)
+    print("image_features:", image_features[0].shape)
+    print("class_predictions_with_backgrounds:", class_predictions_with_backgrounds[0].shape)
 
     _proposal_target_assigner = target_assigner.create_target_assigner(
         'FasterRCNN', 'proposal')
 
     _box_coder = _proposal_target_assigner.box_coder
 
-    print("_box_coder:", _box_coder)
+    # print("_box_coder:", _box_coder)
 
     _box_code_size = _box_coder.code_size
 
-    print("_box_code_size:", _box_code_size)
 
     for (image_feature, box_encoding, class_predictions_with_background,
          num_predictions_per_location) in zip(
             image_features, box_encodings, class_predictions_with_backgrounds,
         num_predictions_per_locations):
 
-        combined_feature_map_shape = (shape_utils.combined_static_and_dynamic_shape(image_feature))
+        combined_feature_map_shape = list(image_feature.shape)
 
         shapes = np.stack([combined_feature_map_shape[0],
                            combined_feature_map_shape[1] * combined_feature_map_shape[2] * num_predictions_per_location,
@@ -449,10 +450,11 @@ def _first_stage_box_predictor_predict(image_features, box_encodings, class_pred
                       num_predictions_per_location,
                       num_class_slots]))
 
+
         class_predictions_list.append(class_predictions_with_background)
 
-    print("box_encodings_list:", np.array(box_encodings_list).shape)
-    print("class_predictions_list:", np.array(class_predictions_list).shape)
+    # print("box_encodings_list:", np.array(box_encodings_list).shape)
+    # print("class_predictions_list:", np.array(class_predictions_list).shape)
     return {
         BOX_ENCODINGS: box_encodings_list,
         CLASS_PREDICTIONS_WITH_BACKGROUND: class_predictions_list
@@ -540,23 +542,29 @@ def _postprocess_rpn(
     rpn_encodings_shape = shape_utils.combined_static_and_dynamic_shape(
         rpn_box_encodings_batch)
 
-    print("=== anchors:", anchors[0])
+    # print("=== anchors:", anchors[0])
 
     tiled_anchor_boxes = np.tile(
         np.expand_dims(anchors, 0), [rpn_encodings_shape[0], 1, 1])
-    print("=== tiled_anchor_boxes:", tiled_anchor_boxes[0][0])
+    # print("=== tiled_anchor_boxes:", tiled_anchor_boxes[0][0])
 
     proposal_boxes = _batch_decode_boxes(rpn_box_encodings_batch,
                                          tiled_anchor_boxes)
 
     proposal_boxes = np.squeeze(proposal_boxes, axis=2)
+    # (1, 28728, 4)
+    # 0 [11.60262919  3.12900102 41.31160688 18.96688846]
 
-    print("=========== proposal_boxes:", proposal_boxes.shape)
-    print("=========== proposal_boxes 0:", proposal_boxes[0, 0])
-
+    # rpn_objectness_predictions_with_background_batch (1, 28728, 2)
+    # rpn_objectness_predictions_with_background_batch[:, :, 1][0][0] -2.7135613
     rpn_objectness_softmax_without_background = ops.softmax(rpn_objectness_predictions_with_background_batch)[:, :, 1]
+    # rpn_objectness_softmax_without_background: (1, 28728)
+    # ====== softmax score : 0.0032150035
+    print("====== softmax score :", rpn_objectness_softmax_without_background[0][0])
     clip_window = _compute_clip_window(image_shapes)
+    # [[   0    0  600 1002]]
 
+    print("clip_window:", clip_window)
     (proposal_boxes, proposal_scores, _, _, _,
      num_proposals) = post_processing.batch_multiclass_non_max_suppression(
         np.expand_dims(proposal_boxes, axis=2),
@@ -568,7 +576,23 @@ def _postprocess_rpn(
         first_stage_max_proposals,
         clip_window=clip_window)
 
+    print("proposal_boxes:", proposal_boxes.shape)
+    print("proposal_boxes [0][0]:", proposal_boxes[0][0])
+
+    # import h5py
+    # with h5py.File('tf_proposal.h5', 'w') as f:
+    #     f["tf_proposal"] = proposal_boxes[0]
+
+    print("proposal_scores:", proposal_scores.shape)
+    print("proposal_scores [0][0]:", proposal_scores[0][0])
+
+    # proposal_boxes [0][0]: [  6.95569825 402.90691757 398.87478089 947.73357773]
+    # proposal_scores: (1, 100)
+    # proposal_scores [0][0]: 0.9992391
+    # caffe 'proposals final:', array([237.24371 ,  18.908209, 561.04926 , 175.2929  ], dtype=float32))
+
     # normalize proposal boxes
+
     def normalize_boxes(args):
         proposal_boxes_per_image = args[0][0]
         image_shape = args[1][0]

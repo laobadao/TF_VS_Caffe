@@ -139,10 +139,19 @@ class TensorflowProposal(TensorflowCustomLayer):
         clip_window = np.array([0, 0, height, width])
         print("clip_window:", clip_window)
         # ('proposals_clip  :', (1829, 4))
-        proposals_clip = clip_to_window(proposals, clip_window)
+        # proposals_clip = clip_to_window(proposals, clip_window)
 
-        print("proposals_clip clip_to_window :", proposals_clip.shape)
-        print("proposals_clip clip_to_window[0] :", proposals_clip[0])
+        boxdecode = proposals
+
+        im_info = np.array([height, width, 0])
+
+        proposals = proposals[:, (1, 0, 3, 2)]
+
+        proposals = clip_boxes(proposals, im_info[:2])
+        print("proposals_clip clip_to_window :", proposals.shape)
+        print("proposals_clip clip_to_window[0] :", proposals[0])
+        # array([ 0.     ,  0.     , 37.36838, 15.30636], dtype=float32))
+        # ', array([ 0.     ,  0.     , 15.30636, 37.     ], dtype=float32))
 
         # anchors[0]:', array([ 0.      ,  0.      , 45.254834, 22.627417]))
 
@@ -150,11 +159,9 @@ class TensorflowProposal(TensorflowCustomLayer):
         # ('proposals1 1:', array([  0.22217222,   1.6537127 , 100.95798   ,  44.21667   ],
         #       dtype=float32))
 
-        boxdecode = proposals
 
-        im_info = np.array([height, width, 0])
         # im_info:', array([38, 63,  0]))
-        proposals = clip_boxes(proposals, im_info[:2])
+        # proposals = clip_boxes(proposals, im_info[:2])
 
         print("proposals clip_boxes :", proposals.shape)
         print("proposals clip_boxes [0]:", proposals[0])

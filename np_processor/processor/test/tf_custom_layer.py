@@ -99,14 +99,21 @@ class TensorflowProposal(TensorflowCustomLayer):
 
         _num_anchors = len(scales) * len(aspect_ratios)
         print("_num_anchors:", _num_anchors)
-        scores = inputs[0][:, :, :, _num_anchors:]
+
+        class_prediction_shape = inputs[0].shape
+        scores = np.reshape(inputs[0], [class_prediction_shape[1]*class_prediction_shape[2]*_num_anchors, 2])
+
         bbox_deltas = inputs[1]
         # box
         bbox_deltas = bbox_deltas.reshape((-1, 4))
 
+        # softmax
+        # ========== scores [0]:', array([-2.7135613], dtype=float32))
+        scores = self._softmax(scores)[:, 1]
+        # scores [0]:', array([0.003215], dtype=float32))
         # scores
         scores = scores.reshape((-1, 1))
-        print("scores:", scores.shape)
+
         # anchors
         height, width = inputs[0].shape[1], inputs[0].shape[2]
 
@@ -118,7 +125,7 @@ class TensorflowProposal(TensorflowCustomLayer):
                                                   in aspect_ratios],
                                    base_anchor_size=None,
                                    anchor_stride=[height_stride,
-                                                   width_stride],
+                                                  width_stride],
                                    anchor_offset=None, feature_map_shape_list=feature_map_shape_list)
 
         pre_nms_topN = 6000
@@ -146,24 +153,19 @@ class TensorflowProposal(TensorflowCustomLayer):
         boxdecode = proposals
 
         im_info = np.array([height, width, 0])
-        # im_info:', array([38, 63,  0]))
-        proposals = clip_boxes(proposals, im_info[:2])
-
         print("proposals2:", proposals.shape)
-
         # im_info:[:2]', array([38, 63]
 
         print("im_info:[:2]", im_info[:2])
+        # 相当于没有用到
         keep = self._filter_boxes(proposals, min_size * im_info[2])
 
         proposals = proposals[keep, :]
-        print("proposals3:", proposals.shape)
+        print("proposals3 _filter_boxes:", proposals.shape)
 
         # 'scores.shape1', (28728, 1
 
-        print("scores.shape1", scores.shape)
         scores = scores[keep]
-        print("scores.shape2", scores.shape)
         order = scores.ravel().argsort()[::-1]
         if pre_nms_topN > 0:
             order = order[:pre_nms_topN]
@@ -178,8 +180,15 @@ class TensorflowProposal(TensorflowCustomLayer):
         if post_nms_topN > 0:
             keep = keep[:post_nms_topN]
         proposals = proposals[keep, :]
-        # ('proposals5:', (100, 4))
+        # ('proposals final:', (100, 4))
+
         print("proposals final:", proposals.shape)
+        print("proposals final:", proposals[0])
+
+        # import h5py
+        # with h5py.File('caffe_proposal.h5', 'w') as f:
+        #     f["caffe_proposal"] = proposals
+
         return proposals, boxdecode, anchors
 
     def _filter_boxes(self, boxes, min_size):
@@ -189,6 +198,28 @@ class TensorflowProposal(TensorflowCustomLayer):
         hs = boxes[:, 3] - boxes[:, 1] + 1
         keep = np.where((ws >= min_size) & (hs >= min_size))[0]
         return keep
+
+
+    def _softmax(self, z):
+        input_shape = z.shape
+        if z.ndim == 4:
+            z = np.reshape(z, [-1, z.shape[-1]])
+        if len(z.shape) == 3 and z.shape[0] == 1:
+            z = z[0]
+        assert len(z.shape) == 2
+        s = np.max(z, axis=1)
+        s = s[:, np.newaxis]  # necessary step to do broadcasting
+        e_x = np.exp(z - s)
+        # e_x = np.exp(z)
+        div = np.sum(e_x, axis=1)
+        div = div[:, np.newaxis]  # dito
+        result = e_x / div
+        if len(input_shape) == 3:
+            result = np.reshape(result, input_shape)
+        if len(input_shape) == 4 and input_shape[0] == 1:
+            result = np.reshape(result, input_shape)
+        return result
+
 
 class TensorflowROIPooling(TensorflowCustomLayer):
     """docstring for ROIPooling"""

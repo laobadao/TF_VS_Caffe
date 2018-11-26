@@ -88,15 +88,14 @@ class FasterRcnnBoxCoder(box_coder.BoxCoder):
           boxes: BoxList holding N bounding boxes.
         """
         # rel_codes: (28728, 4)
-        print("rel_codes:", rel_codes.shape)
-        print("rel_codes[0]:", rel_codes[0])
-        print("anchors[0]:", anchors.get()[0])
+        # print("rel_codes:", rel_codes.shape)
+        # print("rel_codes[0]:", rel_codes[0])
+        # print("anchors[0]:", anchors.get()[0])
         # 将 左上角，右下角坐标，转换为 中心点和宽高
         ycenter_a, xcenter_a, ha, wa = anchors.get_center_coordinates_and_sizes()
-
+        
+        # print("rel_codes:", rel_codes[0])
         tras_rel_codes = np.transpose(rel_codes)
-
-        print("tras_rel_codes:", tras_rel_codes.shape)
         # tras_rel_codes: (4, 28728)
         ty, tx, th, tw = np.split(tras_rel_codes, 4)
         ty = ty.flatten()
@@ -104,19 +103,25 @@ class FasterRcnnBoxCoder(box_coder.BoxCoder):
         th = th.flatten()
         tw = tw.flatten()
         # self._scale_factors: [10.0, 10.0, 5.0, 5.0]
-        print("self._scale_factors:", self._scale_factors)
 
         if self._scale_factors:
             ty /= self._scale_factors[0]
             tx /= self._scale_factors[1]
             th /= self._scale_factors[2]
             tw /= self._scale_factors[3]
-
+            
         w = np.exp(tw) * wa
         h = np.exp(th) * ha
 
+        # print("w {} , wa {}".format(w[0], wa[0]))
+        # print("h {} , ha {}".format(h[0], ha[0]))
+
         ycenter = ty * ha + ycenter_a
         xcenter = tx * wa + xcenter_a
+
+        # print("ycenter {} , ycenter_a {}".format(ycenter[0], ycenter_a[0]))
+        # print("xcenter {} , xcenter_a {}".format(xcenter[0], xcenter_a[0]))
+
         ymin = ycenter - h / 2.
         xmin = xcenter - w / 2.
         ymax = ycenter + h / 2.
@@ -124,6 +129,4 @@ class FasterRcnnBoxCoder(box_coder.BoxCoder):
         decode_proposal = np.transpose(np.stack([ymin, xmin, ymax, xmax]))
         print("decode_proposal:", decode_proposal.shape)
         print("================= decode_proposal[0]:", decode_proposal[0])
-        print("================= decode_proposal[1]:", decode_proposal[1])
-        print("================= decode_proposal[2]:", decode_proposal[2])
         return box_list.BoxList(decode_proposal)

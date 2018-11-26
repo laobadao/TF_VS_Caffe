@@ -120,6 +120,11 @@ class TensorflowProposal(TensorflowCustomLayer):
         # scores
         scores = scores.reshape((-1, 1))
 
+        # ('bbox_deltas 1:', array([ 0.8462524, -0.1174521, -2.104301 , -1.7837868], dtype=float32))
+        # ('bbox_deltas 2:', array([-0.1174521,  0.8462524, -2.104301 , -1.7837868], dtype=float32))
+
+        bbox_deltas = bbox_deltas[:, (1, 0, 2, 3)]
+
         proposals = bbox_transform_inv(anchors, bbox_deltas)
         boxdecode = proposals
 
