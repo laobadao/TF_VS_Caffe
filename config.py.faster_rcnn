@@ -1,0 +1,59 @@
+# `pip install easydict`
+from easydict import EasyDict as edict
+
+__C = edict()
+cfg = __C
+
+__C.PLAT_TYPE = 'caffe' #
+__C.DEBUG = True
+
+# preprocess
+__C.PREPROCESS = edict()
+__C.PREPROCESS.IMG_LIST = '/data1/home/nntool/caoyang/work/AEP/img_3'
+__C.PREPROCESS.IMG_TYPE = 1  #0:gray 1:BGR
+__C.PREPROCESS.HEIGHT = 375
+__C.PREPROCESS.WIDTH = 500
+__C.PREPROCESS.MEAN = [102.9801, 115.9465, 122.7717]
+__C.PREPROCESS.VAR = 1
+__C.PREPROCESS.NORM_TYPE = 1
+__C.PREPROCESS.MEAN_FILE = ''
+
+__C.DEBUG= edict()
+__C.DEBUG.OPEN = False
+__C.DEBUG.OUTPUT = ''
+
+# caffe options
+__C.CAFFE = edict()
+__C.CAFFE.NET_TYPE = 3 #0:cnn 1:ssd 2:yolo_v2 3:faster_rcnn
+__C.CAFFE.PROTOTXT = '/data1/home/nntool/caoyang/work/AEP/faster_rcnn/VGG16_faster_rcnn_test.prototxt'
+__C.CAFFE.CAFFEMODEL = '/data1/home/nntool/caoyang/work/AEP/faster_rcnn/VGG16_faster_rcnn_final.caffemodel'
+
+# convert options
+__C.CONVERT = edict()
+__C.CONVERT.SAVE_KERAS = True
+__C.CONVERT.SAVE_KERAS_NET_FILE = '/data1/home/nntool/caoyang/work/AEP/faster_rcnn/keras_net.json'
+__C.CONVERT.SAVE_KERAS_WEIGHT_FILE = '/data1/home/nntool/caoyang/work/AEP/faster_rcnn/keras_weight.h5'
+
+# quatization options
+__C.QUATIZATION = edict()
+__C.QUATIZATION.MODE = "MMFIBF"
+__C.QUATIZATION.RECORD_FILE = 'record_file.json'
+__C.QUATIZATION.SAVE_ISD = True
+__C.QUATIZATION.SAVE_ISD_NET_FILE = 'isd_net.json'
+__C.QUATIZATION.SAVE_ISD_WEIGHT_FILE = 'isd_weight.h5'
+__C.QUATIZATION.SAVE_ISD_REF_DATA_FILE = 'isd_ref_data.h5'
+
+# test options
+__C.TEST= edict()
+__C.TEST.SAVE_FILE = './test.txt'
+__C.TEST.PLAT_THRESH = 0.1
+
+
+# faster_rcnn options
+__C.FRCNN = edict()
+__C.FRCNN.RPN_PRE_NMS_TOP_N = 6000
+__C.FRCNN.RPN_POST_NMS_TOP_N = 300
+__C.FRCNN.RPN_NMS_THRESH = 0.7
+__C.FRCNN.RPN_MIN_SIZE = 16
+__C.FRCNN.SCALES = (600,)
+__C.FRCNN.MAX_SIZE = 1000
