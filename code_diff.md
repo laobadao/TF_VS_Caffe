@@ -171,6 +171,83 @@ def _get_center_coordinates_and_sizes(box_corners):
 
 ```
 
+## batch_nms()
+
+```
+
+def apply_nms(self, boxes, confs, nms_threshold, eta, top_k, max_selection_size=None):
+     """
+     Greedily selects a subset of bounding boxes in descending order of score.
+
+     :param boxes: boxes
+     :param confs: scores
+     :param nms_threshold:
+     :param eta:
+     :param top_k:
+     :param max_selection_size: for tensorflow ssd model ,select max_selection_size num from all bounding boxes
+     :return:
+     """
+     idx_array = []
+
+     adaptive_threshold = nms_threshold
+     max_idx_list = self._get_max_idx(confs)
+     for i in range(len(max_idx_list)):
+         if max_selection_size is None:
+             if i >= top_k and top_k > 0:
+                 break
+         else:
+             if len(idx_array) == max_selection_size:
+                 break
+
+         keep = True
+         idx = max_idx_list[i]
+         for r_i in idx_array:
+             if keep == False:
+                 break
+             overlap = self._iou(boxes[idx], boxes[r_i])
+             keep = (overlap <= adaptive_threshold)
+
+         if keep:
+             idx_array.append(idx)
+
+         if keep and eta < 1 and adaptive_threshold > 0.5:
+             adaptive_threshold = adaptive_threshold * eta
+
+     return idx_array
+
+ def _get_max_idx(self, data_list):
+     def _take_second(elem):
+         return elem[1] if len(elem) > 0 else 0
+
+     sort_data = []
+     for i in range(len(data_list)):
+         sort_data.append((i, data_list[i]))
+     sort_data.sort(key=_take_second, reverse=True)
+
+     sort_idx = []
+     for i in range(len(sort_data)):
+         sort_idx.append(sort_data[i][0])
+     return sort_idx
+
+ def _iou(self, box1, box2):
+     # compute intersection
+     inter_upleft = np.maximum(box1[:2], box2[:2])
+     inter_botright = np.minimum(box1[2:], box2[2:])
+     inter_wh = inter_botright - inter_upleft
+     inter_wh = np.maximum(inter_wh, 0)
+     inter = inter_wh[0] * inter_wh[1]
+     # compute union
+     area_pred = (box2[2] - box2[0]) * (box2[3] - box2[1])
+     area_gt = (box1[2] - box1[0]) * (box1[3] - box1[1])
+     union = area_pred + area_gt - inter
+     # compute iou
+     iou = inter / union
+     return iou
+
+```
+
+
+
 # Caffe code
 
 1. 先 decode 2. 再 clip
@@ -245,3 +322,38 @@ def bbox_transform_inv(boxes, deltas):
     # tf  [11.60262919  3.12900102 41.31160688 18.96688846] 已经没有可比性了
     # caffe array([ 0.      , 37.      ,  2.803227, 37.      ], dtype=float32))
   ```
+
+## nms()
+
+```
+
+def py_cpu_nms(dets, thresh):
+    """Pure Python NMS baseline."""
+    x1 = dets[:, 0]
+    y1 = dets[:, 1]
+    x2 = dets[:, 2]
+    y2 = dets[:, 3]
+    scores = dets[:, 4]
+
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+
+        inds = np.where(ovr <= thresh)[0]
+        order = order[inds + 1]
+
+    return keep
+```
