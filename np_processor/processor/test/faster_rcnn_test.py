@@ -253,11 +253,10 @@ def np_faster_post():
     roi_result = np_frp.faster_rcnn_stage_one_post(result_input[0], result_middle1_dict)
 
     print("roi_result:", roi_result.shape)
-    # print("roi_result 0:", roi_result[0, :, :, 0])
+    print("roi_result 0:", roi_result[0, :, :, 0])
     # print("roi_result 1:", roi_result[1, :, :, 0])
 
     # second_post_result = np_frp.faster_rcnn_second_stage_post(result_input, result_middle1_dict, result_middle2_dict)
-
 
 
 if __name__ == "__main__":

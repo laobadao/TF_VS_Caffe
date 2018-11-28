@@ -159,7 +159,6 @@ class TensorflowProposal(TensorflowCustomLayer):
         # ('proposals1 1:', array([  0.22217222,   1.6537127 , 100.95798   ,  44.21667   ],
         #       dtype=float32))
 
-
         # im_info:', array([38, 63,  0]))
         # proposals = clip_boxes(proposals, im_info[:2])
 

@@ -6,7 +6,7 @@ import math
 import config
 from rpn.generate_anchors_tf import generate_anchors
 from fast_rcnn.bbox_transform import bbox_transform_inv_tf, clip_to_window, clip_boxes
-from fast_rcnn.nms_wrapper import nms
+from fast_rcnn.nms_wrapper import nms_tf
 
 
 class TensorflowCustomLayer(object):
@@ -92,6 +92,7 @@ class TensorflowProposal(TensorflowCustomLayer):
         print('input_1.shape=', inputs[1].shape)
         print('input_2.shape=', inputs[2])
         image_shape = inputs[2]
+        print(" ============ image_shape:", image_shape)
         scales = config.cfg.POSTPROCESSOR.SCALES
         aspect_ratios = config.cfg.POSTPROCESSOR.ASPECT_RATIOS
         height_stride = config.cfg.POSTPROCESSOR.HEIGHT_STRIDE
@@ -136,11 +137,9 @@ class TensorflowProposal(TensorflowCustomLayer):
         # bbox_deltas:', (28728, 4)
         # clip_window:', array([   0,    0,  600, 1002]))
         clip_window = np.array([0, 0, image_shape[1], image_shape[2]])
-        # tf clip_to_window
+        # tf clip_to_window 'clip_window:', array([   0,    0,  600, 1002])
         print("============== clip_to_window ===================")
-        print("before clip anchors:", anchors[0])
         anchors = clip_to_window(anchors, clip_window)
-        print("after clip anchors:", anchors[0])
         # anchors[0]:', array([ 0.      ,  0.      , 45.254834, 22.627417]))
         proposals = bbox_transform_inv_tf(anchors, bbox_deltas)
 
@@ -151,45 +150,74 @@ class TensorflowProposal(TensorflowCustomLayer):
         #       dtype=float32))
 
         boxdecode = proposals
+        score_thresh = 0.0
+        boxlist_filtered = self._filter_greater_than(proposals, np.transpose(scores)[0], score_thresh)
+
+        if clip_window is not None:
+            proposals = clip_to_window(boxlist_filtered, clip_window)
 
         im_info = np.array([height, width, 0])
-        print("proposals2:", proposals.shape)
         # im_info:[:2]', array([38, 63]
-
         print("im_info:[:2]", im_info[:2])
+
         # 相当于没有用到
-        keep = self._filter_boxes(proposals, min_size * im_info[2])
-
-        proposals = proposals[keep, :]
-        print("proposals3 _filter_boxes:", proposals.shape)
-
-        # 'scores.shape1', (28728, 1
-
-        scores = scores[keep]
+        # min_size * im_info[2] = [ 608, 1008] 实际上应该是 [600, 1002] 差异
+        # keep = self._filter_boxes(proposals, min_size * im_info[2])
         order = scores.ravel().argsort()[::-1]
+
         if pre_nms_topN > 0:
             order = order[:pre_nms_topN]
-        proposals = proposals[order, :]
+        # 'order:', array([ 6547, 17719, 19779, 23035, 17715,
+        # 22231, 19743, 19767,  6239,5566]))
 
+        proposals = proposals[order, :]
+        proposals = proposals.astype(np.float32)
         # proposals4:', (6000, 4))
-        print("proposals4 pre:", proposals.shape)
         scores = scores[order]
-        # TODO nms 方法是否重写
-        keep = nms(np.hstack((proposals, scores)), nms_thresh)
+        max_selection_size = 100
+        keep = nms_tf(proposals, scores, nms_thresh, 1, 0, max_selection_size)
+        keep = np.array(keep, dtype=np.int32)
 
         if post_nms_topN > 0:
             keep = keep[:post_nms_topN]
         proposals = proposals[keep, :]
         # ('proposals final:', (100, 4))
 
-        print("proposals final:", proposals.shape)
-        print("proposals final:", proposals[0])
+        image_shapes = [image_shape[1], image_shape[2]]
+        # image_shapes:', [600, 1002]
+        normalized_proposal_boxes = self._normalize_boxes(proposals, image_shapes)
+        print("normalized_proposal_boxes:", normalized_proposal_boxes.shape)
+        print("normalized_proposal_boxes[0]:", normalized_proposal_boxes[0])
 
-        # import h5py
-        # with h5py.File('caffe_proposal.h5', 'w') as f:
-        #     f["caffe_proposal"] = proposals
+        return normalized_proposal_boxes, boxdecode, anchors
 
-        return proposals, boxdecode, anchors
+    def _normalize_boxes(self, proposal_boxes_per_image, image_shape):
+        normalized_boxes_per_image = self._to_normalized_coordinates(
+            proposal_boxes_per_image, image_shape[0],
+            image_shape[1])
+
+        return normalized_boxes_per_image
+
+    def _to_normalized_coordinates(self, boxlist, height, width):
+        height = float(height)
+        width = float(width)
+        return self._scale(boxlist, 1 / height, 1 / width)
+
+    def _scale(self, boxlist, y_scale, x_scale):
+        y_scale = float(y_scale)
+        x_scale = float(x_scale)
+
+        y_min, x_min, y_max, x_max = np.split(
+            boxlist, 4, axis=1)
+
+        y_min = y_scale * y_min
+        y_max = y_scale * y_max
+        x_min = x_scale * x_min
+        x_max = x_scale * x_max
+
+        scaled_boxlist = np.concatenate([y_min, x_min, y_max, x_max], 1)
+
+        return scaled_boxlist
 
     def _filter_boxes(self, boxes, min_size):
         """Remove all boxes with any side smaller than min_size."""
@@ -199,6 +227,27 @@ class TensorflowProposal(TensorflowCustomLayer):
         keep = np.where((ws >= min_size) & (hs >= min_size))[0]
         return keep
 
+    def _filter_greater_than(self, boxlist, scores, thresh):
+
+        if scores.ndim > 2:
+            raise ValueError('Scores should have rank 1 or 2')
+        if scores.ndim == 2 and scores.shape[1] != 1:
+            raise ValueError('Scores should have rank 1 or have shape '
+                             'consistent with [None, 1]')
+
+        high_score_indices = np.reshape(np.where(np.greater(scores, thresh)), [-1])
+
+        return self._gather(boxlist, high_score_indices)
+
+    def _gather(self, boxlist, indices):
+        if indices.ndim != 1:
+            raise ValueError('indices should have rank 1')
+        if indices.dtype != np.int32 and indices.dtype != np.int64:
+            raise ValueError('indices should be an int32 / int64 tensor')
+
+        gathered_result = np.take(boxlist, indices, axis=0)
+        # TODO fields score mask
+        return gathered_result
 
     def _softmax(self, z):
         input_shape = z.shape
@@ -254,6 +303,9 @@ class TensorflowROIPooling(TensorflowCustomLayer):
         rois = inputs[1]
 
         print('img shape = ', img.shape)
+        print('rois proposal shape = ', rois.shape)
+        print('rois proposal [0] = ', rois[0])
+
         num_rois = len(rois)
         im_h, im_w = img.shape[1], img.shape[2]
 
@@ -284,4 +336,13 @@ class TensorflowROIPooling(TensorflowCustomLayer):
                     crop = img[0, y1:y2, x1:x2, :]
                     pooled_val = np.max(np.max(crop, axis=0), axis=0)
                     outputs[i_r, ph, pw, :] = pooled_val
+
+        print("outputs:", outputs.shape)
+        import h5py
+        with h5py.File('roi_pooling_caffe.h5', 'w') as f:
+            f["roi_pooling_caffe"] = outputs
+
+        print("roi_result 0:", outputs[0, :, :, 0])
+        print("roi_result 1:", outputs[1, :, :, 0])
+
         return outputs
