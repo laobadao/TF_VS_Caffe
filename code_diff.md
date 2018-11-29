@@ -275,6 +275,165 @@ def apply_nms(self, boxes, confs, nms_threshold, eta, top_k, max_selection_size=
 
 ```
 
+## crop_and_resize() C++
+
+```
+// Sharding across boxes.
+    auto CropAndResizePerBox = [&](int start_box, int limit_box) {
+      for (int b = start_box; b < limit_box; ++b) {
+        const float y1 = boxes(b, 0);
+        const float x1 = boxes(b, 1);
+        const float y2 = boxes(b, 2);
+        const float x2 = boxes(b, 3);
+
+        const int32 b_in = box_index(b);
+        if (!FastBoundsCheck(b_in, batch_size)) {
+          continue;
+        }
+
+        const float height_scale =
+            (crop_height > 1)
+                ? (y2 - y1) * (image_height - 1) / (crop_height - 1)
+                : 0;
+        const float width_scale =
+            (crop_width > 1) ? (x2 - x1) * (image_width - 1) / (crop_width - 1)
+                             : 0;
+
+        for (int y = 0; y < crop_height; ++y) {
+          const float in_y = (crop_height > 1)
+                                 ? y1 * (image_height - 1) + y * height_scale
+                                 : 0.5 * (y1 + y2) * (image_height - 1);
+          if (in_y < 0 || in_y > image_height - 1) {
+            for (int x = 0; x < crop_width; ++x) {
+              for (int d = 0; d < depth; ++d) {
+                crops(b, y, x, d) = extrapolation_value;
+              }
+            }
+            continue;
+          }
+          if (method_name == "bilinear") {
+            const int top_y_index = floorf(in_y);
+            const int bottom_y_index = ceilf(in_y);
+            const float y_lerp = in_y - top_y_index;
+
+            for (int x = 0; x < crop_width; ++x) {
+              const float in_x = (crop_width > 1)
+                                     ? x1 * (image_width - 1) + x * width_scale
+                                     : 0.5 * (x1 + x2) * (image_width - 1);
+              if (in_x < 0 || in_x > image_width - 1) {
+                for (int d = 0; d < depth; ++d) {
+                  crops(b, y, x, d) = extrapolation_value;
+                }
+                continue;
+              }
+              const int left_x_index = floorf(in_x);
+              const int right_x_index = ceilf(in_x);
+              const float x_lerp = in_x - left_x_index;
+
+              for (int d = 0; d < depth; ++d) {
+                const float top_left(static_cast<float>(
+                    image(b_in, top_y_index, left_x_index, d)));
+                const float top_right(static_cast<float>(
+                    image(b_in, top_y_index, right_x_index, d)));
+                const float bottom_left(static_cast<float>(
+                    image(b_in, bottom_y_index, left_x_index, d)));
+                const float bottom_right(static_cast<float>(
+                    image(b_in, bottom_y_index, right_x_index, d)));
+                const float top = top_left + (top_right - top_left) * x_lerp;
+                const float bottom =
+                    bottom_left + (bottom_right - bottom_left) * x_lerp;
+                crops(b, y, x, d) = top + (bottom - top) * y_lerp;
+              }
+            }
+
+```
+## Crop_and_resize() python numpy 实现
+
+```
+image = inputs[0]
+# 'img shape = ', (1, 38, 63, 1024))
+boxes = inputs[1]
+# ('rois proposal shape = ', (100, 4))
+boxes_expand = np.expand_dims(boxes, axis=0)
+box_index = self._get_box_inds(boxes_expand)
+crop_size = self._crop_size
+
+ksize = config.cfg.POSTPROCESSOR.MAXPOOL_KERNEL_SIZE
+strides = config.cfg.POSTPROCESSOR.MAXPOOL_STRIDE
+
+# self._spatial_scale:', 0.0625
+assert image.ndim == 4
+method_name = "bilinear"
+batch_size = image.shape[0]
+image_height = image.shape[1] # image_height = 38, image_width = 63
+image_width = image.shape[2]
+depth = image.shape[3]
+
+proposals_num = boxes.shape[0]
+print("proposals_num", proposals_num)
+
+crop_height = crop_size[0]
+crop_width = crop_size[1]
+
+assert crop_height > 0
+assert crop_width > 0
+
+crops = np.zeros((proposals_num, crop_height, crop_width, depth))
+
+print("crops:", crops.shape)
+
+num_boxes = crops.shape[0]
+extrapolation_value = 0
+
+for b in range(proposals_num):
+    y1 = boxes[b][0]
+    x1 = boxes[b][1]
+    y2 = boxes[b][2]
+    x2 = boxes[b][3]
+
+    b_in = int(box_index[b])
+
+    height_scale = (y2 - y1) * (image_height - 1) / (crop_height - 1) if crop_height > 1 else 0
+    width_scale = (x2 - x1) * (image_width - 1) / (crop_width - 1) if crop_width > 1 else 0
+
+    for y in range(crop_height):
+        in_y = y1 * (image_height - 1) + y * height_scale if (crop_height > 1) \
+            else 0.5 * (y1 + y2) * (image_height - 1)
+
+        if in_y < 0 or in_y > (image_height - 1):
+            for x in range(crop_width):
+                for d in range(depth):
+                    crops[b, y, x, d] = extrapolation_value
+            continue
+
+        if method_name == "bilinear":
+            top_y_index = int(np.floor(in_y))
+            bottom_y_index = int(np.ceil(in_y))
+            y_lerp = float(in_y - top_y_index)
+
+            for x in range(crop_width):
+                in_x = x1 * (image_width - 1) + x * width_scale if crop_width > 1 \
+                    else 0.5 * (x1 + x2) * (image_width - 1)
+
+                if in_x < 0 or in_x > image_width - 1:
+                    for d in range(depth):
+                        crops[b, y, x, d] = extrapolation_value
+                    continue
+
+                left_x_index = int(np.floor(in_x))
+                right_x_index = int(np.ceil(in_x))
+                x_lerp = in_x - left_x_index
+
+                for d in range(depth):
+                    top_left = float(image[b_in, top_y_index, left_x_index, d])
+                    top_right = float(image[b_in, top_y_index, right_x_index, d])
+                    bottom_left = float(image[b_in, bottom_y_index, left_x_index, d])
+                    bottom_right = float(image[b_in, bottom_y_index, right_x_index, d])
+                    top = top_left + (top_right - top_left) * x_lerp
+                    bottom = bottom_left + (bottom_right - bottom_left) * x_lerp
+                    crops[b, y, x, d] = top + (bottom - top) * y_lerp
+
+```
 
 
 # Caffe code
@@ -470,5 +629,69 @@ def cpu_nms(np.ndarray[np.float32_t, ndim=2] dets, np.float thresh):
                 suppressed[j] = 1
 
     return keep
+
+```
+# caffe ROI_pooling
+
+```
+def predict(self, inputs):
+       assert (len(inputs) == 2)
+
+       img = inputs[0]
+       rois = inputs[1]
+
+       print('------------------img shape = ', img.shape)
+       print("-----------------rois = ", rois.shape)
+       num_rois = len(rois)
+       # feature map 高宽 38， 63
+       im_h, im_w = img.shape[1], img.shape[2]
+
+       # 构建 roi_pooling 之后的 需要输出的 shape [100, 7, 7, 1024]  
+       outputs = np.zeros((num_rois, self._pooled_h, self._pooled_w, img.shape[3]))
+
+       # self._spatial_scale feature map 相比于原图缩小的尺度
+
+       # 遍历 rois (rois 是之前 proposal 之后的结果 num_rois = 100)
+       for i_r in range(num_rois):
+           #  得到该 roi 的 x1 (左上角 x 坐标)在 feature map 上面的位置(注意使用了 round 取整)  
+           roi_x1 = round(rois[i_r, 0] * self._spatial_scale)
+           # roi 的 y1 (左上角 y 坐标)
+           roi_y1 = round(rois[i_r, 1] * self._spatial_scale)
+           roi_x2 = round(rois[i_r, 2] * self._spatial_scale)
+           roi_y2 = round(rois[i_r, 3] * self._spatial_scale)
+
+           # 不同 计算宽高时 +1
+           # roi 在 feature map 上面的高  
+           roi_h = max(roi_y2 - roi_y1 + 1, 1)
+           # roi 在 feature map 上面的宽
+           roi_w = max(roi_x2 - roi_x1 + 1, 1)
+
+           #得到 roi_pool 的时候该 roi 在高方向上被划分的段数
+           bin_size_h = roi_h / float(self._pooled_h)
+           bin_size_w = roi_w / float(self._pooled_w)
+
+           # 遍历 pooled_height 7
+           for ph in range(self._pooled_h):
+               # 遍历 pooled_width_，7
+               for pw in range(self._pooled_w):     
+                   # floor 下取整  pw * bin_size_w 在 feature map 上的偏移坐标
+                   #  min(max()) 找到该值对应的检索区域在 feature map 上面的开始坐标        
+                   x1 = int(math.floor(min(max(pw * bin_size_w + roi_x1, 0), im_w)))
+                   y1 = int(math.floor(min(max(ph * bin_size_h + roi_y1, 0), im_h)))
+
+                   # 不同 pw + 1
+                   x2 = int(math.ceil(min(max((pw + 1) * bin_size_w + roi_x1, 0), im_w)))
+                   y2 = int(math.ceil(min(max((ph + 1) * bin_size_h + roi_y1, 0), im_h)))
+
+                   if x2 <= x1 or y2 <= y1:
+                       continue
+                   # '========== crop.shape:', (1, 1, 1024)         
+                   crop = img[0, y1:y2, x1:x2, :]                   
+                   # '========== pooled_val.shape:', (1024,)
+                   pooled_val = np.max(np.max(crop, axis=0), axis=0)
+                   outputs[i_r, ph, pw, :] = pooled_val
+
+       print("-----------------outputs= ", outputs.shape)
+       return outputs
 
 ```
