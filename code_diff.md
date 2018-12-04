@@ -350,88 +350,80 @@ def apply_nms(self, boxes, confs, nms_threshold, eta, top_k, max_selection_size=
 ## Crop_and_resize() python numpy 实现
 
 ```
-image = inputs[0]
-# 'img shape = ', (1, 38, 63, 1024))
-boxes = inputs[1]
-# ('rois proposal shape = ', (100, 4))
-boxes_expand = np.expand_dims(boxes, axis=0)
-box_index = self._get_box_inds(boxes_expand)
-crop_size = self._crop_size
+def _crop_and_resize(self, image, boxes, crop_size):
+    boxes_expand = np.expand_dims(boxes, axis=0)
+    box_index = self._get_box_inds(boxes_expand)
 
-ksize = config.cfg.POSTPROCESSOR.MAXPOOL_KERNEL_SIZE
-strides = config.cfg.POSTPROCESSOR.MAXPOOL_STRIDE
+    # self._spatial_scale:', 0.0625
+    assert image.ndim == 4
+    method_name = "bilinear"
+    batch_size = image.shape[0]
+    image_height = image.shape[1]  # image_height = 38, image_width = 63
+    image_width = image.shape[2]
+    depth = image.shape[3]
 
-# self._spatial_scale:', 0.0625
-assert image.ndim == 4
-method_name = "bilinear"
-batch_size = image.shape[0]
-image_height = image.shape[1] # image_height = 38, image_width = 63
-image_width = image.shape[2]
-depth = image.shape[3]
+    proposals_num = boxes.shape[0]
+    print("proposals_num", proposals_num)
 
-proposals_num = boxes.shape[0]
-print("proposals_num", proposals_num)
+    crop_height = crop_size[0]
+    crop_width = crop_size[1]
 
-crop_height = crop_size[0]
-crop_width = crop_size[1]
+    assert crop_height > 0
+    assert crop_width > 0
 
-assert crop_height > 0
-assert crop_width > 0
+    crops = np.zeros((proposals_num, crop_height, crop_width, depth))
+    extrapolation_value = 0
 
-crops = np.zeros((proposals_num, crop_height, crop_width, depth))
+    # 遍历 proposal  100*4
+    for b in range(proposals_num):
+        y1 = boxes[b][0]
+        x1 = boxes[b][1]
+        y2 = boxes[b][2]
+        x2 = boxes[b][3]
 
-print("crops:", crops.shape)
+        # 这是 100 个 0 后面用来当索引的   
+        b_in = int(box_index[b])        
+        #
+        height_scale = (y2 - y1) * (image_height - 1) / (crop_height - 1) if crop_height > 1 else 0
+        width_scale = (x2 - x1) * (image_width - 1) / (crop_width - 1) if crop_width > 1 else 0
 
-num_boxes = crops.shape[0]
-extrapolation_value = 0
+        for y in range(crop_height):
+            in_y = y1 * (image_height - 1) + y * height_scale if (crop_height > 1) \
+                else 0.5 * (y1 + y2) * (image_height - 1)
 
-for b in range(proposals_num):
-    y1 = boxes[b][0]
-    x1 = boxes[b][1]
-    y2 = boxes[b][2]
-    x2 = boxes[b][3]
-
-    b_in = int(box_index[b])
-
-    height_scale = (y2 - y1) * (image_height - 1) / (crop_height - 1) if crop_height > 1 else 0
-    width_scale = (x2 - x1) * (image_width - 1) / (crop_width - 1) if crop_width > 1 else 0
-
-    for y in range(crop_height):
-        in_y = y1 * (image_height - 1) + y * height_scale if (crop_height > 1) \
-            else 0.5 * (y1 + y2) * (image_height - 1)
-
-        if in_y < 0 or in_y > (image_height - 1):
-            for x in range(crop_width):
-                for d in range(depth):
-                    crops[b, y, x, d] = extrapolation_value
-            continue
-
-        if method_name == "bilinear":
-            top_y_index = int(np.floor(in_y))
-            bottom_y_index = int(np.ceil(in_y))
-            y_lerp = float(in_y - top_y_index)
-
-            for x in range(crop_width):
-                in_x = x1 * (image_width - 1) + x * width_scale if crop_width > 1 \
-                    else 0.5 * (x1 + x2) * (image_width - 1)
-
-                if in_x < 0 or in_x > image_width - 1:
+            if in_y < 0 or in_y > (image_height - 1):
+                for x in range(crop_width):
                     for d in range(depth):
                         crops[b, y, x, d] = extrapolation_value
-                    continue
+                continue
 
-                left_x_index = int(np.floor(in_x))
-                right_x_index = int(np.ceil(in_x))
-                x_lerp = in_x - left_x_index
+            if method_name == "bilinear":
+                top_y_index = int(np.floor(in_y))
+                bottom_y_index = int(np.ceil(in_y))
+                y_lerp = float(in_y - top_y_index)
 
-                for d in range(depth):
-                    top_left = float(image[b_in, top_y_index, left_x_index, d])
-                    top_right = float(image[b_in, top_y_index, right_x_index, d])
-                    bottom_left = float(image[b_in, bottom_y_index, left_x_index, d])
-                    bottom_right = float(image[b_in, bottom_y_index, right_x_index, d])
-                    top = top_left + (top_right - top_left) * x_lerp
-                    bottom = bottom_left + (bottom_right - bottom_left) * x_lerp
-                    crops[b, y, x, d] = top + (bottom - top) * y_lerp
+                for x in range(crop_width):
+                    in_x = x1 * (image_width - 1) + x * width_scale if crop_width > 1 \
+                        else 0.5 * (x1 + x2) * (image_width - 1)
+                    #
+                    if in_x < 0 or in_x > image_width - 1:
+                        for d in range(depth):
+                            crops[b, y, x, d] = extrapolation_value
+                        continue
+
+                    left_x_index = int(np.floor(in_x))
+                    right_x_index = int(np.ceil(in_x))
+                    x_lerp = in_x - left_x_index
+
+                    for d in range(depth):
+                        top_left = float(image[b_in, top_y_index, left_x_index, d])
+                        top_right = float(image[b_in, top_y_index, right_x_index, d])
+                        bottom_left = float(image[b_in, bottom_y_index, left_x_index, d])
+                        bottom_right = float(image[b_in, bottom_y_index, right_x_index, d])
+                        top = top_left + (top_right - top_left) * x_lerp
+                        bottom = bottom_left + (bottom_right - bottom_left) * x_lerp
+                        crops[b, y, x, d] = top + (bottom - top) * y_lerp
+    return crops
 
 ```
 
